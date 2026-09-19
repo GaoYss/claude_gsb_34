@@ -3,9 +3,9 @@
 from sqlalchemy import func, or_
 
 from ..constants import ENUM_GROUPS
-from ..errors import ConflictError, ValidationError
+from ..errors import ConflictError
 from ..extensions import db
-from ..models import GreenSpace, MaintenanceRecord, MaintenanceTask, PlantReplacement
+from ..models import MaintenanceRecord, MaintenanceTask, PlantReplacement
 from ..models.maintenance_task import OPEN_STATUSES
 from ..models.mixins import utcnow
 from ..utils.dates import format_date, today
@@ -13,6 +13,7 @@ from ..utils.numbers import to_float
 from ..utils.sorting import parse_sort
 from .base_service import BaseService
 from .code_generator import daily_prefix
+from .green_space_service import GreenSpaceService
 
 
 class MaintenanceTaskService(BaseService):
@@ -37,11 +38,8 @@ class MaintenanceTaskService(BaseService):
     @classmethod
     def prepare_instance(cls, instance, payload):
         green_space_id = payload.get("green_space_id", instance.green_space_id)
-        space = db.session.get(GreenSpace, green_space_id) if green_space_id else None
-        if space is None:
-            raise ValidationError("登记失败", details={"green_space_id": "所选绿地不存在"})
-        if space.status == "archived":
-            raise ConflictError(f"绿地「{space.name}」已归档，不能再登记养护任务")
+        space = GreenSpaceService.get_writable(green_space_id, action="登记失败")
+        instance.green_space_id = space.id
 
     @classmethod
     def apply_derived(cls, instance):
@@ -166,6 +164,7 @@ class MaintenanceTaskService(BaseService):
         """
 
         task = cls.get(obj_id)
+        GreenSpaceService.get_writable(task.green_space_id, action="状态更新失败")
         status = payload["status"]
         if payload.get("description") is not None:
             task.description = payload["description"]

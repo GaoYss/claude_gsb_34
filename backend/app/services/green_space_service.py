@@ -3,7 +3,7 @@
 from sqlalchemy import and_, func, or_
 
 from ..constants import ENUM_GROUPS, GREEN_SPACE_STATUS
-from ..errors import ConflictError
+from ..errors import ConflictError, ValidationError
 from ..extensions import db
 from ..models import GreenSpace, MaintenanceRecord, MaintenanceTask, PlantReplacement
 from ..models.maintenance_task import OPEN_STATUSES
@@ -12,6 +12,22 @@ from ..utils.numbers import to_float
 from ..utils.sorting import parse_sort
 from .base_service import BaseService
 from .code_generator import year_prefix
+
+# 归档状态值：归档校验只允许引用这一处常量
+ARCHIVED_STATUS = "archived"
+
+
+class GreenSpaceArchivedError(ConflictError):
+    """绿地已归档：任务、记录、更换的任何新增/修改写入都被拒绝。"""
+
+
+def archived_write_message(name):
+    """归档拦截的统一提示文案，所有写入路径返回同一句。"""
+
+    return (
+        f"绿地「{name}」已归档，仅可查询历史数据，"
+        "不能再登记或修改养护任务、养护记录和绿植更换记录"
+    )
 
 
 class GreenSpaceService(BaseService):
@@ -138,11 +154,26 @@ class GreenSpaceService(BaseService):
         return {"total": total or 0, "total_area": to_float(area) or 0}
 
     @classmethod
+    def get_writable(cls, green_space_id, action="提交失败"):
+        """所有业务写入引用绿地的唯一入口：取绿地并做归档校验。
+
+        任务登记、养护记录录入、绿植更换登记的创建与修改都必须经此取绿地，
+        保证归档拦截逻辑与提示文案全局一致；归档绿地的历史数据仍可正常查询。
+        """
+
+        space = db.session.get(GreenSpace, green_space_id) if green_space_id else None
+        if space is None:
+            raise ValidationError(action, details={"green_space_id": "所选绿地不存在"})
+        if space.status == ARCHIVED_STATUS:
+            raise GreenSpaceArchivedError(archived_write_message(space.name))
+        return space
+
+    @classmethod
     def options(cls, keyword=None, limit=50):
         """下拉选项：支持按名称/编号模糊搜索。"""
 
         query = db.session.query(GreenSpace).filter(
-            GreenSpace.status != "archived"
+            GreenSpace.status != ARCHIVED_STATUS
         )
         if keyword:
             like = f"%{keyword}%"

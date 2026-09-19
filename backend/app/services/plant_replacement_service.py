@@ -7,11 +7,12 @@ from sqlalchemy import func, or_
 from ..constants import ENUM_GROUPS
 from ..errors import ValidationError
 from ..extensions import db
-from ..models import GreenSpace, MaintenanceRecord, PlantReplacement
+from ..models import MaintenanceRecord, PlantReplacement
 from ..utils.numbers import to_float
 from ..utils.sorting import parse_sort
 from .base_service import BaseService
 from .code_generator import daily_prefix
+from .green_space_service import GreenSpaceService
 
 
 class PlantReplacementService(BaseService):
@@ -37,9 +38,8 @@ class PlantReplacementService(BaseService):
     @classmethod
     def prepare_instance(cls, instance, payload):
         green_space_id = payload.get("green_space_id", instance.green_space_id)
-        space = db.session.get(GreenSpace, green_space_id) if green_space_id else None
-        if space is None:
-            raise ValidationError("登记失败", details={"green_space_id": "所选绿地不存在"})
+        space = GreenSpaceService.get_writable(green_space_id, action="登记失败")
+        instance.green_space_id = space.id
 
         record_id = payload.get("maintenance_record_id", instance.maintenance_record_id)
         if record_id:
