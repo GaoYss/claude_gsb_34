@@ -7,10 +7,11 @@ from sqlalchemy import func, or_
 from ..constants import QUALITY_RESULT
 from ..errors import ConflictError, ValidationError
 from ..extensions import db
-from ..models import GreenSpace, MaintenanceRecord, MaintenanceTask, PlantReplacement
+from ..models import MaintenanceRecord, MaintenanceTask, PlantReplacement
 from ..utils.dates import format_date
 from ..utils.numbers import to_float
 from ..utils.sorting import parse_sort
+from .archive_policy import resolve_writable_space
 from .base_service import BaseService
 from .code_generator import daily_prefix
 
@@ -64,9 +65,8 @@ class MaintenanceRecordService(BaseService):
             raise ValidationError(
                 "录入失败", details={"green_space_id": "请选择所属绿地或关联养护任务"}
             )
-        space = db.session.get(GreenSpace, green_space_id)
-        if space is None:
-            raise ValidationError("录入失败", details={"green_space_id": "所选绿地不存在"})
+        # 无论绿地直接传入还是由关联任务带出，归档判断都走同一处
+        space = resolve_writable_space(green_space_id, missing_title="录入失败")
 
         instance.green_space_id = green_space_id
         record_date = payload.get("record_date", instance.record_date)
